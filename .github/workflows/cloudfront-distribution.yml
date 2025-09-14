@@ -1,0 +1,87 @@
+name: CloudFront Distribución
+
+on:
+  workflow_dispatch:
+    inputs:
+      bucket_name:
+        description: 'Bucket S3 para la distribución'
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  create-cf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Crear OAI para CloudFront
+        id: oai
+        run: |
+          OAI_ID=$(aws cloudfront create-cloud-front-origin-access-identity \
+            --cloud-front-origin-access-identity-config CallerReference=$(date +%s),Comment=OAI-${{ github.event.inputs.bucket_name }} \
+            --query 'CloudFrontOriginAccessIdentity.Id' --output text)
+          echo "OAI_ID=$OAI_ID" >> $GITHUB_ENV
+
+      - name: Asignar política de bucket para OAI
+        run: |
+          POLICY=$(cat <<EOF
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {"AWS": "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity $OAI_ID"},
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::${{ github.event.inputs.bucket_name }}/*"
+              }
+            ]
+          }
+          EOF
+          )
+          echo "$POLICY" > policy.json
+          aws s3api put-bucket-policy --bucket ${{ github.event.inputs.bucket_name }} --policy file://policy.json
+
+      - name: Crear distribución CloudFront
+        id: cf
+        run: |
+          cat > dist-config.json <<EOF
+          {
+            "CallerReference": "$(date +%s)",
+            "Comment": "Distribución Frontend ${{ github.event.inputs.bucket_name }}",
+            "DefaultCacheBehavior": {
+              "TargetOriginId": "S3-${{ github.event.inputs.bucket_name }}",
+              "ViewerProtocolPolicy": "redirect-to-https",
+              "AllowedMethods": {"Quantity":2,"Items":["GET","HEAD"],"CachedMethods":{"Quantity":2,"Items":["GET","HEAD"]}},
+              "ForwardedValues": {"QueryString":false,"Cookies":{"Forward":"none"}},
+              "MinTTL":0
+            },
+            "Origins": {
+              "Quantity": 1,
+              "Items": [
+                {
+                  "Id": "S3-${{ github.event.inputs.bucket_name }}",
+                  "DomainName": "${{ github.event.inputs.bucket_name }}.s3.amazonaws.com",
+                  "S3OriginConfig": {"OriginAccessIdentity":"origin-access-identity/cloudfront/$OAI_ID"}
+                }
+              ]
+            },
+            "Enabled": true,
+            "DefaultRootObject": "index.html"
+          }
+          EOF
+
+          DIST_ID=$(aws cloudfront create-distribution --distribution-config file://dist-config.json \
+            --query "Distribution.Id" --output text)
+          echo "DIST_ID=$DIST_ID"
+          DOMAIN=$(aws cloudfront get-distribution --id $DIST_ID --query "Distribution.DomainName" --output text)
+          echo "Frontend desplegado en: https://$DOMAIN"

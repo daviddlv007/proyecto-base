@@ -7,15 +7,12 @@ permissions:
   contents: read
 
 jobs:
-  create-frontend-bucket:
+  create-bucket:
     runs-on: ubuntu-latest
     outputs:
-      bucket_name: ${{ steps.set-outputs.outputs.bucket }}
+      bucket_name: ${{ steps.set-output.outputs.bucket }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
       - name: Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -23,19 +20,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - name: Crear bucket S3
-        id: set-outputs
+      - name: Crear bucket S3 si no existe
+        id: set-output
         run: |
           BUCKET="proyecto-base-frontend"
           if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
             aws s3api create-bucket --bucket "$BUCKET" --region us-east-1
             aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled
-            # Bloquear ACLs para compatibilidad con ObjectOwnership
-            aws s3api put-public-access-block --bucket "$BUCKET" \
-              --public-access-block-configuration BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false
           fi
-          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
-
-      - name: Mostrar bucket
-        run: |
-          echo "Bucket frontend -> ${{ steps.set-outputs.outputs.bucket }}"
+          echo "bucket=$BUCKET" >> $GITHUB_OUTPUT

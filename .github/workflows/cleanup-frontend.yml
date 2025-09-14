@@ -1,0 +1,67 @@
+name: Cleanup Frontend
+
+on:
+  workflow_dispatch:
+    inputs:
+      bucket_name:
+        description: 'Bucket S3 a eliminar'
+        required: true
+      cloudfront_id:
+        description: 'ID de la distribución CloudFront'
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deshabilitar distribución CloudFront
+        run: |
+          aws cloudfront update-distribution \
+            --id ${{ github.event.inputs.cloudfront_id }} \
+            --distribution-config "$(aws cloudfront get-distribution-config --id ${{ github.event.inputs.cloudfront_id }} --query 'DistributionConfig')" \
+            --if-match "$(aws cloudfront get-distribution-config --id ${{ github.event.inputs.cloudfront_id }} --query 'ETag' --output text)" \
+            --enabled false
+          echo "Distribución CloudFront deshabilitada, esperando propagación..."
+          sleep 60
+
+      - name: Eliminar distribución CloudFront
+        run: |
+          aws cloudfront delete-distribution --id ${{ github.event.inputs.cloudfront_id }} --if-match "$(aws cloudfront get-distribution-config --id ${{ github.event.inputs.cloudfront_id }} --query 'ETag' --output text)"
+          echo "Distribución eliminada."
+
+      - name: Vaciar bucket S3 (versiones incluidas)
+        run: |
+          BUCKET=${{ github.event.inputs.bucket_name }}
+          # Vaciar versiones si existe versioning
+          VERSIONS=$(aws s3api list-object-versions --bucket $BUCKET --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' --output json)
+          if [ "$VERSIONS" != '{"Objects":[]}' ]; then
+            aws s3api delete-objects --bucket $BUCKET --delete "$VERSIONS"
+          fi
+          # Vaciar objetos "DeleteMarkers" si hay
+          MARKERS=$(aws s3api list-object-versions --bucket $BUCKET --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' --output json)
+          if [ "$MARKERS" != '{"Objects":[]}' ]; then
+            aws s3api delete-objects --bucket $BUCKET --delete "$MARKERS"
+          fi
+          echo "Bucket vacío."
+
+      - name: Eliminar bucket S3
+        run: |
+          aws s3api delete-bucket --bucket ${{ github.event.inputs.bucket_name }}
+          echo "Bucket eliminado."
+
+      - name: Eliminar OAI asociado (opcional)
+        run: |
+          echo "Recuerda eliminar manualmente el OAI si lo quieres borrar, AWS no permite borrarlo mientras la distribución existió."
