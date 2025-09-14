@@ -1,10 +1,14 @@
-name: Deploy
+name: Deploy to EC2
 
 on:
-  workflow_run:
-    workflows: ["Build & Push"]
-    types:
-      - completed
+  workflow_dispatch:
+    inputs:
+      frontend-path:
+        required: true
+        description: 'Path to the frontend build folder (from build workflow)'
+      backend-image:
+        required: true
+        description: 'Backend Docker image to deploy'
 
 permissions:
   contents: read
@@ -14,13 +18,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Download frontend build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-build
-          path: ./frontend-build
-
-      - name: Deploy to EC2
+      - name: Deploy via SSH to EC2
         uses: appleboy/ssh-action@v0.1.9
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -28,14 +26,39 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -euo pipefail
-            cd /home/${{ secrets.EC2_USER }}/proyecto-base/infra/compose
 
-            # Pull backend image
-            docker pull ${{ env.BACKEND_IMAGE }}:latest
+            PROJECT_NAME="daviddlv007/proyecto-base"
+            PROJECT="${PROJECT_NAME##*/}"
+            REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT"
 
-            # Copiar frontend build al volumen static_volume
-            docker run --rm -v static_volume:/srv -v $PWD/../../frontend-build:/build alpine \
-                sh -c "cp -a /build/. /srv && chown -R 1000:1000 /srv && chmod -R 755 /srv"
+            echo ">>> Directorio de despliegue: $REPO_DIR"
 
-            # Levantar servicios
-            docker compose -f docker-compose.prod.yml up -d
+            # Crear estructura de carpetas y permisos
+            sudo mkdir -p "$REPO_DIR/frontend/dist"
+            sudo mkdir -p "$REPO_DIR/infra/compose"
+            sudo chown -R 1000:1000 "$REPO_DIR"
+
+            # Copiar frontend build directamente al volumen que usa Caddy
+            FRONTEND_PATH="${{ github.event.inputs.frontend-path }}"
+            sudo rsync -a "$FRONTEND_PATH/" "$REPO_DIR/static_volume/"
+
+            cd "$REPO_DIR/infra/compose"
+
+            BACKEND_IMAGE="${{ github.event.inputs.backend-image }}"
+            echo ">>> Imagen backend a usar: $BACKEND_IMAGE"
+
+            # Login GHCR
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Crear volúmenes y permisos
+            for vol in static_volume media_volume caddy_data caddy_config; do
+              docker volume inspect "$vol" >/dev/null 2>&1 || docker volume create "$vol"
+              docker run --rm -v "$vol":/data alpine sh -c "chown -R 1000:1000 /data && chmod -R 755 /data && sync"
+            done
+
+            # Levantar contenedores
+            docker compose -f docker-compose.prod.yml down || true
+            docker compose -f docker-compose.prod.yml pull backend
+            docker compose -f docker-compose.prod.yml up -d db backend caddy
+
+            echo ">>> Deploy finalizado."
