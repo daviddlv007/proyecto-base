@@ -100,7 +100,7 @@ jobs:
 
             echo ">>> Crear y preparar volúmenes si no existen (con logging)"
 
-            REPO_BUILD_DIR="$REPO_DIR/frontend/build"
+            REPO_BUILD_DIR="$REPO_DIR/frontend/dist/mi-app"
 
             vol_create_and_prepare() {
               local vol="$1"
