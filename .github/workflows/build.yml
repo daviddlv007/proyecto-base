@@ -1,4 +1,4 @@
-name: Build & Push Backend
+name: CI/CD - Build & Push Backend
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     outputs:
-      backend-image: ${{ steps.set-output.outputs.backend-image }}
+      backend-image: ${{ steps.build-backend.outputs.image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,12 +32,11 @@ jobs:
           password: ${{ secrets.GHCR_TOKEN }}
 
       - name: Build & push backend image
-        id: set-output
+        id: build-backend
         uses: docker/build-push-action@v4
         with:
           context: ./backend
           file: ./backend/Dockerfile.prod
           push: true
           tags: ${{ env.BACKEND_IMAGE }}:latest
-        # Guardamos la imagen en un output para que pueda usarla el workflow de deploy
-        run: echo "backend-image=${{ env.BACKEND_IMAGE }}:latest" >> $GITHUB_OUTPUT
+          outputs: type=image,name=${{ env.BACKEND_IMAGE }}:latest
