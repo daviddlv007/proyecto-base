@@ -26,7 +26,9 @@ jobs:
 
             PROJECT_NAME="daviddlv007/proyecto-base"
             PROJECT="${PROJECT_NAME##*/}"
-            REPO_DIR="/home/***/$PROJECT"
+            REPO_DIR="/home/$USER/$PROJECT"
+            BACKEND_IMAGE_FULL="ghcr.io/daviddlv007/proyecto-base/backend:latest"
+            GHCR_TOKEN="***"   # 👈 token GHCR
 
             echo ">>> Directorio de despliegue: $REPO_DIR"
 
@@ -34,17 +36,21 @@ jobs:
             sudo mkdir -p "$REPO_DIR"
             sudo chown -R $USER:$USER "$REPO_DIR"
 
-            # Ejecutar todo como usuario EC2
-            sudo -i -u $USER bash <<'EOF'
+            # Pasar variables al heredoc
+            sudo -i -u $USER bash <<EOF
             set -euo pipefail
 
-            echo ">>> Entrando a $REPO_DIR"
-            cd "$REPO_DIR"
+            REPO_DIR="$REPO_DIR"
+            BACKEND_IMAGE_FULL="$BACKEND_IMAGE_FULL"
+            GHCR_TOKEN="$GHCR_TOKEN"
+
+            echo ">>> Entrando a \$REPO_DIR"
+            cd "\$REPO_DIR"
 
             # Clonar o actualizar repo
             if [ ! -d ".git" ]; then
                 echo ">>> Clonando repositorio..."
-                git clone ***github.com/daviddlv007/proyecto-base.git .
+                git clone https://github.com/daviddlv007/proyecto-base.git .
             else
                 echo ">>> Actualizando repositorio..."
                 git fetch --all
@@ -59,23 +65,24 @@ jobs:
             cd "infra/compose"
 
             # Generar archivo .env dinámico
-            BACKEND_IMAGE_FULL="ghcr.io/daviddlv007/proyecto-base/backend:latest"
             echo ">>> Generando .env dinámico"
-            echo "BACKEND_IMAGE=$BACKEND_IMAGE_FULL" > .env
-            echo "POSTGRES_PASSWORD=***" >> .env
-            echo "DJANGO_SECRET_KEY=***" >> .env
-            echo "DOMAIN=***" >> .env
+            cat > .env <<EENV
+            BACKEND_IMAGE=\$BACKEND_IMAGE_FULL
+            POSTGRES_PASSWORD=***
+            DJANGO_SECRET_KEY=***
+            DOMAIN=***
+            EENV
 
             # Login a GHCR
             echo ">>> Logueando a GHCR"
-            echo "***" | docker login ghcr.io -u $USER --password-stdin
+            echo "\$GHCR_TOKEN" | docker login ghcr.io -u daviddlv007 --password-stdin
 
             # Crear volúmenes si no existen
             echo ">>> Creando volúmenes (si no existen)"
             for vol in static_volume caddy_data caddy_config; do
-                docker volume inspect $vol >/dev/null 2>&1 || {
-                    docker volume create $vol
-                    echo "    - Volumen $vol creado"
+                docker volume inspect \$vol >/dev/null 2>&1 || {
+                    docker volume create \$vol
+                    echo "    - Volumen \$vol creado"
                 }
             done
 
@@ -94,9 +101,7 @@ jobs:
 
             # Estado backend
             echo ">>> Estado backend:"
-            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
+            docker inspect -f '{{.State.Health.Status}}' \$(docker ps --filter ancestor=\$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
 
             echo ">>> Deploy finalizado."
             EOF
-
-
