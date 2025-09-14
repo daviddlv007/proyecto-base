@@ -1,15 +1,24 @@
 {$DOMAIN} {
     encode zstd gzip
 
+    # Archivos estáticos
+    handle /static/* {
+        root * /vol/static
+        file_server
+    }
+
+    # API
     handle /api/* {
         uri strip_prefix /api
         reverse_proxy backend:8000
     }
 
+    # Admin
     handle /admin/* {
         reverse_proxy backend:8000
     }
 
+    # Healthcheck
     handle /healthz* {
         reverse_proxy backend:8000
     }
