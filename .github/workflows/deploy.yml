@@ -33,11 +33,10 @@ jobs:
             set -euo pipefail
 
             # Definir variables
-            PROJECT_NAME=$(basename "daviddlv007/proyecto-base")
-            REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT_NAME"
-            BACKEND_IMAGE_FULL="ghcr.io/daviddlv007/proyecto-base/backend:latest"
-            GHCR_TOKEN="***"
-            GIT_URL="https://github.com/daviddlv007/proyecto-base.git"
+            PROJECT_NAME=$(basename "${{ github.repository }}")      # Extrae nombre del repo
+            REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT_NAME"   # Ruta de despliegue
+            BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"     # Imagen backend desde env
+            GIT_URL="${{ env.GIT_URL }}"   
 
             echo ">>> Directorio de despliegue: $REPO_DIR"
 
