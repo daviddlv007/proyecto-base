@@ -57,20 +57,20 @@ jobs:
           echo ">>> Subiendo archivos estáticos al EC2"
           scp -o StrictHostKeyChecking=no -i private_key.pem -r $FRONTEND_DIR/$STATIC_BUILD_DIR/* "$EC2_USER@$EC2_HOST:$TEMP_BUILD_DIR"
 
-      - name: Copiar al volumen de Docker usando contenedor temporal
+      - name: Copiar al volumen de Docker frontend usando contenedor temporal
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
-          STATIC_VOLUME_PATH="static_volume"
+          FRONTEND_VOLUME="frontend_static_volume"
           TEMP_BUILD_DIR="/home/$EC2_USER/frontend_build"
 
-          echo ">>> Copiando estáticos al volumen de Docker usando contenedor temporal"
+          echo ">>> Copiando estáticos al volumen frontend de Docker usando contenedor temporal"
           ssh -o StrictHostKeyChecking=no -i private_key.pem "$EC2_USER@$EC2_HOST" bash -c "'
             docker run --rm \
-              -v $STATIC_VOLUME_PATH:/vol/static \
+              -v $FRONTEND_VOLUME:/vol/frontend_static \
               -v $TEMP_BUILD_DIR:/build:ro \
-              alpine sh -c \"cp -r /build/* /vol/static && chown -R 1000:1000 /vol/static\"
+              alpine sh -c \"cp -r /build/* /vol/frontend_static && chown -R 1000:1000 /vol/frontend_static\" 
           '"
 
       - name: Cleanup temporal

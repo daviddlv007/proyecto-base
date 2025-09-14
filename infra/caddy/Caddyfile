@@ -1,18 +1,16 @@
-{$DOMAIN} {
+${DOMAIN} {
+    # Compresión
     encode zstd gzip
 
-    # Archivos estáticos en la raíz
-    root * /vol/static
-    file_server
+    # Archivos estáticos de Django Admin y otros
+    handle /admin/* {
+        root * /vol/django_static
+        file_server
+    }
 
     # API
     handle /api/* {
         uri strip_prefix /api
-        reverse_proxy backend:8000
-    }
-
-    # Admin
-    handle /admin/* {
         reverse_proxy backend:8000
     }
 
@@ -21,6 +19,13 @@
         reverse_proxy backend:8000
     }
 
+    # SPA Angular (catch-all)
+    handle /* {
+        root * /vol/frontend_static
+        try_files {path} /index.html
+    }
+
+    # Seguridad
     header {
         Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
     }

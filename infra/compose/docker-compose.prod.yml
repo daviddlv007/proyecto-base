@@ -23,7 +23,7 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
     volumes:
-      - static_volume:/vol/static
+      - django_static_volume:/vol/django_static
     depends_on:
       - db
     user: "1000:1000"
@@ -41,7 +41,8 @@ services:
     environment:
       - DOMAIN=${DOMAIN}
     volumes:
-      - static_volume:/vol/static:ro 
+      - django_static_volume:/vol/django_static:ro
+      - frontend_static_volume:/vol/frontend_static:ro
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
@@ -59,5 +60,7 @@ volumes:
     name: caddy_data
   caddy_config:
     name: caddy_config
-  static_volume:
-    name: static_volume 
+  django_static_volume:
+    name: django_static_volume
+  frontend_static_volume:
+    name: frontend_static_volume
