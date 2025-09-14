@@ -1,4 +1,4 @@
-${DOMAIN} {
+{$DOMAIN} {
     # Compresión
     encode zstd gzip
 
