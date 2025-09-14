@@ -94,13 +94,19 @@ jobs:
 
             # Crear volúmenes si no existen
             echo ">>> Creando volúmenes (si no existen)"
-            for vol in static_volume caddy_data caddy_config; do
+            for vol in django_static_volume caddy_data caddy_config; do
                 docker volume inspect $vol >/dev/null 2>&1 || {
                     docker volume create $vol
                     echo "    - Volumen $vol creado"
                 }
             done
 
+            echo ">>> Ajustando permisos de los volúmenes"
+            docker run --rm -v django_static_volume:/vol/django_static alpine chown -R 1000:1000 /vol/django_static
+            docker run --rm -v frontend_static_volume:/vol/frontend_static alpine chown -R 1000:1000 /vol/frontend_static
+            docker run --rm -v caddy_data:/data alpine chown -R 1000:1000 /data
+            docker run --rm -v caddy_config:/config alpine chown -R 1000:1000 /config
+                      
             # Detener contenedores existentes
             echo ">>> Deteniendo contenedores existentes"
             docker compose -f docker-compose.prod.yml down || true
