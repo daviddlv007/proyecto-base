@@ -31,8 +31,7 @@
             ],
             "styles": [
               "src/styles.scss"
-            ],
-            "outputPath": "dist"
+            ]
           },
           "configurations": {
             "production": {
@@ -48,14 +47,12 @@
                   "maximumError": "8kB"
                 }
               ],
-              "outputHashing": "all",
-              "outputPath": "dist"
+              "outputHashing": "all"
             },
             "development": {
               "optimization": false,
               "extractLicenses": false,
-              "sourceMap": true,
-              "outputPath": "dist"
+              "sourceMap": true
             }
           },
           "defaultConfiguration": "production"
