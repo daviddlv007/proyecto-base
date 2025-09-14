@@ -15,12 +15,14 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      # 1️⃣ Descargar artefacto del frontend
       - name: Download frontend build artifact
         uses: actions/download-artifact@v4
         with:
           name: frontend-build
           path: ./frontend-dist
 
+      # 2️⃣ Deploy por SSH
       - name: Deploy via SSH to EC2
         uses: appleboy/ssh-action@v0.1.9
         with:
@@ -30,19 +32,19 @@ jobs:
           script: |
             set -euo pipefail
 
-            PROJECT_NAME="daviddlv007/proyecto-base"
+            PROJECT_NAME="${{ github.repository }}"
             PROJECT="${PROJECT_NAME##*/}"
             REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT"
 
-            echo ">>> Directorio de despliegue: $REPO_DIR"
+            echo "Directorio de despliegue: $REPO_DIR"
 
-            # Crear estructura de carpetas y permisos
-            sudo mkdir -p "$REPO_DIR/frontend/dist"
+            # Crear carpetas y permisos
+            sudo mkdir -p "$REPO_DIR/static_volume"
             sudo mkdir -p "$REPO_DIR/infra/compose"
             sudo chown -R 1000:1000 "$REPO_DIR"
 
-            # Copiar frontend build al volumen que usa Caddy
-            sudo rsync -a ./frontend-dist/ "$REPO_DIR/static_volume/"
+            # Copiar frontend descargado al volumen de Caddy
+            sudo rsync -a ./frontend-dist/browser/ "$REPO_DIR/static_volume/"
 
             cd "$REPO_DIR/infra/compose"
 
@@ -52,15 +54,15 @@ jobs:
             # Login GHCR
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # Crear volúmenes y permisos
+            # Crear volúmenes y ajustar permisos
             for vol in static_volume media_volume caddy_data caddy_config; do
               docker volume inspect "$vol" >/dev/null 2>&1 || docker volume create "$vol"
               docker run --rm -v "$vol":/data alpine sh -c "chown -R 1000:1000 /data && chmod -R 755 /data && sync"
             done
 
-            # Levantar contenedores
+            # Levantar servicios
             docker compose -f docker-compose.prod.yml down || true
             docker compose -f docker-compose.prod.yml pull backend
             docker compose -f docker-compose.prod.yml up -d db backend caddy
 
-            echo ">>> Deploy finalizado."
+            echo ">>> Deploy finalizado"
