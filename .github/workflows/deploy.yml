@@ -64,13 +64,12 @@ jobs:
             fi
             cd "infra/compose"
 
-            # Generar archivo .env dinámico
             echo ">>> Generando .env dinámico"
             cat > .env <<EENV
-            BACKEND_IMAGE=\$BACKEND_IMAGE_FULL
-            POSTGRES_PASSWORD=***
-            DJANGO_SECRET_KEY=***
-            DOMAIN=***
+            BACKEND_IMAGE=$BACKEND_IMAGE_FULL
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}
+            DOMAIN=${{ secrets.DOMAIN }}
             EENV
 
             # Login a GHCR
