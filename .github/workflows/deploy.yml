@@ -13,6 +13,9 @@ permissions:
 
 env:
   BACKEND_IMAGE: ghcr.io/${{ github.repository }}/backend
+  REPO_NAME: ${{ github.repository }}         # e.g., daviddlv007/proyecto-base
+  REPO_DIR: "/home/${{ secrets.EC2_USER }}/$(basename ${{ github.repository }})"
+  GIT_URL: https://github.com/${{ github.repository }}.git
 
 jobs:
   deploy:
@@ -27,34 +30,26 @@ jobs:
           script: |
             set -euo pipefail
 
-            PROJECT_NAME="daviddlv007/proyecto-base"
-            PROJECT="${PROJECT_NAME##*/}"
-            REPO_DIR="/home/$USER/$PROJECT"
-            BACKEND_IMAGE_FULL="ghcr.io/daviddlv007/proyecto-base/backend:latest"
-            GHCR_TOKEN="***"   # 👈 token GHCR
-
             echo ">>> Directorio de despliegue: $REPO_DIR"
 
             # Crear carpeta y asegurar permisos correctos
             sudo mkdir -p "$REPO_DIR"
-            sudo chown -R $USER:$USER "$REPO_DIR"
+            sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} "$REPO_DIR"
 
-            # Pasar variables al heredoc
-            sudo -i -u $USER bash <<EOF
+            sudo -i -u ${{ secrets.EC2_USER }} bash <<EOF
             set -euo pipefail
 
             REPO_DIR="$REPO_DIR"
-            BACKEND_IMAGE_FULL="$BACKEND_IMAGE_FULL"
-            GHCR_TOKEN="$GHCR_TOKEN"
+            BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"
+            GHCR_TOKEN="***"  # token GHCR
 
-            echo ">>> Entrando a \$REPO_DIR"
             cd "\$REPO_DIR"
 
             # Clonar o actualizar solo carpeta infra con sparse-checkout
             if [ ! -d ".git" ]; then
                 echo ">>> Inicializando git y sparse-checkout para infra..."
                 git init
-                git remote add origin https://github.com/daviddlv007/proyecto-base.git
+                git remote add origin "${{ env.GIT_URL }}"
                 git config core.sparseCheckout true
                 echo "infra/*" > .git/info/sparse-checkout
                 git fetch --depth=1 origin main
@@ -65,7 +60,6 @@ jobs:
                 git checkout main
                 git sparse-checkout set infra
             fi
-
 
             # Verificar que infra/compose existe
             if [ ! -d "infra/compose" ]; then
