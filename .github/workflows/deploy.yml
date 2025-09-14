@@ -35,7 +35,7 @@ jobs:
             sudo chown -R $USER:$USER "$REPO_DIR"
 
             # Ejecutar todo como usuario EC2
-            sudo -i -u $USER bash <<EOF
+            sudo -i -u $USER bash <<'EOF'
             set -euo pipefail
 
             echo ">>> Entrando a $REPO_DIR"
@@ -44,7 +44,7 @@ jobs:
             # Clonar o actualizar repo
             if [ ! -d ".git" ]; then
                 echo ">>> Clonando repositorio..."
-                git clone https://x-access-token:***@github.com/daviddlv007/proyecto-base.git .
+                git clone ***github.com/daviddlv007/proyecto-base.git .
             else
                 echo ">>> Actualizando repositorio..."
                 git fetch --all
@@ -94,8 +94,9 @@ jobs:
 
             # Estado backend
             echo ">>> Estado backend:"
-            docker inspect -f '{{.State.Health.Status}}' \$(docker ps --filter ancestor=\$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
+            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
 
             echo ">>> Deploy finalizado."
             EOF
+
 
