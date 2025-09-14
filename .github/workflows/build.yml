@@ -14,7 +14,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      frontend-path: ${{ steps.set-outputs.outputs.frontend-path }}
       backend-image: ${{ env.BACKEND_IMAGE }}:latest
     steps:
       - name: Checkout code
@@ -26,14 +25,17 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Build frontend
-        run: |
-          npm ci
-          npm run build --prefix frontend
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
 
-      - name: Set frontend path output
-        id: set-outputs
-        run: echo "::set-output name=frontend-path::$(pwd)/frontend/dist/browser"
+      - name: Build frontend
+        run: npm run build --prefix frontend
+
+      - name: Upload frontend build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend-build
+          path: frontend/dist/browser
 
       # === Backend ===
       - name: Setup QEMU & Buildx (Docker)
