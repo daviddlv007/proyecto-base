@@ -19,7 +19,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Node
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -31,12 +31,12 @@ jobs:
           npm run build
 
       - name: Upload frontend build artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: frontend-build
           path: ./frontend/dist/mi-app
 
-      - name: Set up Docker Buildx
+      - name: Set up QEMU & Buildx (for Docker)
         uses: docker/setup-buildx-action@v2
 
       - name: Log in to GHCR
@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download frontend build artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: frontend-build
           path: ./frontend/dist/mi-app
@@ -73,49 +73,44 @@ jobs:
           script: |
             set -euo pipefail
 
-            REPO_DIR="/home/${{ secrets.EC2_USER }}/proyecto-base"
+            PROJECT_NAME="${{ github.repository }}"
+            PROJECT="${PROJECT_NAME##*/}"
+            REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT"
+
+            echo "Directorio de despliegue: $REPO_DIR"
+
+            # Crear carpeta de proyecto si no existe
             mkdir -p "$REPO_DIR/frontend/dist/mi-app"
+            chown -R 1000:1000 "$REPO_DIR"
 
-            # Crear volúmenes con permisos correctos
-            create_vol() {
-              local vol="$1"
+            # Copiar build frontend desde el artifact
+            rsync -a ./frontend/dist/mi-app/ "$REPO_DIR/frontend/dist/mi-app/"
+
+            cd "$REPO_DIR/infra/compose"
+
+            BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"
+            echo ">>> Imagen backend a usar: $BACKEND_IMAGE_FULL"
+
+            # Login GHCR en EC2
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Crear volúmenes y ajustar permisos
+            for vol in static_volume media_volume caddy_data caddy_config; do
               docker volume inspect "$vol" >/dev/null 2>&1 || docker volume create "$vol"
-              docker run --rm -v "$vol":/data alpine sh -c "\
-                mkdir -p /data; \
-                chown -R 1000:1000 /data; \
-                chmod -R 755 /data; \
-                sync"
-            }
+              docker run --rm -v "$vol":/data alpine sh -c "chown -R 1000:1000 /data && chmod -R 755 /data && sync"
+            done
 
-            create_vol static_volume
-            create_vol media_volume
-            create_vol caddy_data
-            create_vol caddy_config
+            # Detener contenedores antiguos
+            docker compose -f docker-compose.prod.yml down || true
 
-            # Copiar frontend build al volumen
-            mkdir -p /tmp/frontend-build
-            cp -a "$REPO_DIR/frontend/dist/mi-app/." /tmp/frontend-build/
-            docker run --rm -v static_volume:/data alpine sh -c "\
-              cp -a /tmp/frontend-build/. /data/; \
-              chown -R 1000:1000 /data; \
-              chmod -R 755 /data; \
-              sync"
+            # Levantar servicios
+            docker compose -f docker-compose.prod.yml pull backend
+            docker compose -f docker-compose.prod.yml up -d db backend caddy
 
-            # Generar archivo .env dinámico
-            echo "BACKEND_IMAGE=${{ env.BACKEND_IMAGE }}:latest" > "$REPO_DIR/.env"
-            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> "$REPO_DIR/.env"
-            echo "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" >> "$REPO_DIR/.env"
-            echo "DOMAIN=${{ secrets.DOMAIN }}" >> "$REPO_DIR/.env"
-
-            # Detener contenedores antiguos y levantar nuevos
-            docker compose -f "$REPO_DIR/infra/compose/docker-compose.prod.yml" down || true
-            docker compose -f "$REPO_DIR/infra/compose/docker-compose.prod.yml" pull backend
-            docker compose -f "$REPO_DIR/infra/compose/docker-compose.prod.yml" up -d db backend caddy
-
-            # Limpieza de imágenes antiguas
+            # Limpiar imágenes antiguas
             docker image prune -af --filter 'until=24h' || true
 
-            # Verificar estado del backend
-            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=${{ env.BACKEND_IMAGE }}:latest --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
+            # Healthcheck backend
+            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=$BACKEND_IMAGE:latest --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
 
             echo ">>> Deploy finalizado."
