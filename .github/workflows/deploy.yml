@@ -3,9 +3,6 @@ name: Deploy to EC2
 on:
   workflow_dispatch:
     inputs:
-      frontend-path:
-        required: true
-        description: 'Path to the frontend build folder (from build workflow)'
       backend-image:
         required: true
         description: 'Backend Docker image to deploy'
@@ -18,6 +15,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: ./frontend-dist
+
       - name: Deploy via SSH to EC2
         uses: appleboy/ssh-action@v0.1.9
         with:
@@ -38,9 +41,8 @@ jobs:
             sudo mkdir -p "$REPO_DIR/infra/compose"
             sudo chown -R 1000:1000 "$REPO_DIR"
 
-            # Copiar frontend build directamente al volumen que usa Caddy
-            FRONTEND_PATH="${{ github.event.inputs.frontend-path }}"
-            sudo rsync -a "$FRONTEND_PATH/" "$REPO_DIR/static_volume/"
+            # Copiar frontend build al volumen que usa Caddy
+            sudo rsync -a ./frontend-dist/ "$REPO_DIR/static_volume/"
 
             cd "$REPO_DIR/infra/compose"
 
