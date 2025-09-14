@@ -12,10 +12,12 @@ permissions:
   packages: write
 
 env:
+  # Imagen del backend
   BACKEND_IMAGE: ghcr.io/${{ github.repository }}/backend
-  REPO_NAME: ${{ github.repository }}         # e.g., daviddlv007/proyecto-base
-  REPO_DIR: "/home/${{ secrets.EC2_USER }}/$(basename ${{ github.repository }})"
+  # URL del repo completo
   GIT_URL: https://github.com/${{ github.repository }}.git
+  # Nombre del proyecto derivado del repo
+  PROJECT: ${{ github.repository }} # se extrae con basename luego
 
 jobs:
   deploy:
@@ -30,26 +32,30 @@ jobs:
           script: |
             set -euo pipefail
 
+            # Extraer solo el nombre del proyecto del repo
+            PROJECT_NAME=$(basename "${{ github.repository }}")
+            REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT_NAME"
+            BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"
+            GHCR_TOKEN="***"  # token GHCR (puede pasarse por secrets)
+
             echo ">>> Directorio de despliegue: $REPO_DIR"
 
             # Crear carpeta y asegurar permisos correctos
             sudo mkdir -p "$REPO_DIR"
             sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} "$REPO_DIR"
 
-            sudo -i -u ${{ secrets.EC2_USER }} bash <<EOF
+            # Ejecutar script como usuario EC2, pasando variables
+            sudo -i -u ${{ secrets.EC2_USER }} REPO_DIR="$REPO_DIR" BACKEND_IMAGE_FULL="$BACKEND_IMAGE_FULL" GHCR_TOKEN="$GHCR_TOKEN" bash <<'EOF'
             set -euo pipefail
 
-            REPO_DIR="$REPO_DIR"
-            BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"
-            GHCR_TOKEN="***"  # token GHCR
-
-            cd "\$REPO_DIR"
+            echo ">>> Entrando a $REPO_DIR"
+            cd "$REPO_DIR"
 
             # Clonar o actualizar solo carpeta infra con sparse-checkout
             if [ ! -d ".git" ]; then
                 echo ">>> Inicializando git y sparse-checkout para infra..."
                 git init
-                git remote add origin "${{ env.GIT_URL }}"
+                git remote add origin "${GIT_URL}"
                 git config core.sparseCheckout true
                 echo "infra/*" > .git/info/sparse-checkout
                 git fetch --depth=1 origin main
@@ -83,9 +89,9 @@ jobs:
             # Crear volúmenes si no existen
             echo ">>> Creando volúmenes (si no existen)"
             for vol in static_volume caddy_data caddy_config; do
-                docker volume inspect \$vol >/dev/null 2>&1 || {
-                    docker volume create \$vol
-                    echo "    - Volumen \$vol creado"
+                docker volume inspect $vol >/dev/null 2>&1 || {
+                    docker volume create $vol
+                    echo "    - Volumen $vol creado"
                 }
             done
 
@@ -104,7 +110,7 @@ jobs:
 
             # Estado backend
             echo ">>> Estado backend:"
-            docker inspect -f '{{.State.Health.Status}}' \$(docker ps --filter ancestor=\$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
+            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
 
             echo ">>> Deploy finalizado."
             EOF
