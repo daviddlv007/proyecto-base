@@ -63,10 +63,15 @@ jobs:
                 git checkout main
             else
                 echo ">>> Actualizando carpeta infra..."
+                # Asegurar que existe el remote
+                if ! git remote | grep -q origin; then
+                    git remote add origin "$GIT_URL"
+                fi
                 git fetch origin main
                 git checkout main
                 git sparse-checkout set infra
             fi
+
 
             # Verificar que infra/compose existe
             if [ ! -d "infra/compose" ]; then
