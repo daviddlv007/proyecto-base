@@ -1,111 +1,63 @@
-name: CI/CD - Build, Push & Deploy (prod)
+services:
+  db:
+    image: postgres:15
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: mi_db
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    restart: always
 
-on:
-  push:
-    branches: ["main"]
-  workflow_dispatch:
+  backend:
+    image: ${BACKEND_IMAGE}
+    env_file:
+      - .env
+    environment:
+      DJANGO_ALLOWED_HOSTS: ${DOMAIN}
+      POSTGRES_DB: mi_db
+      POSTGRES_USER: postgres
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    depends_on:
+      - db
+    volumes:
+      - static_volume:/vol/static
+      - media_volume:/vol/media
+    user: "1000:1000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/healthz/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
 
-permissions:
-  contents: read
-  packages: write
+  caddy:
+    image: caddy:2
+    env_file:
+      - .env
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - static_volume:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+    restart: always
 
-env:
-  BACKEND_IMAGE: ghcr.io/${{ github.repository }}/backend
-
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Build frontend
-        working-directory: ./frontend
-        run: |
-          npm ci
-          npm run build
-
-      - name: Upload frontend build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-build
-          path: ./frontend/dist/mi-app
-
-      - name: Set up QEMU & Buildx (for Docker)
-        uses: docker/setup-buildx-action@v2
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN }}
-
-      - name: Build & push backend image
-        uses: docker/build-push-action@v4
-        with:
-          context: ./backend
-          file: ./backend/Dockerfile.prod
-          push: true
-          tags: ${{ env.BACKEND_IMAGE }}:latest
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download frontend artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-build
-          path: ./frontend-build
-
-      - name: Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@v0.1.9
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            #!/bin/bash
-            set -euo pipefail
-
-            PROJECT="proyecto-base"
-            REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT"
-            cd "$REPO_DIR/infra/compose"
-
-            BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"
-            echo ">>> Imagen backend a usar: $BACKEND_IMAGE_FULL"
-
-            # Login a GHCR
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-            # Crear volúmenes si no existen
-            for vol in static_volume media_volume caddy_data caddy_config; do
-              docker volume inspect "$vol" >/dev/null 2>&1 || docker volume create "$vol"
-            done
-
-            # Copiar frontend directamente al volumen static_volume (Caddy)
-            docker run --rm \
-              -v static_volume:/srv \
-              -v "$REPO_DIR/frontend-build":/build \
-              alpine sh -c "cp -a /build/. /srv/; chown -R 1000:1000 /srv; chmod -R 755 /srv"
-
-            # Detener contenedores antiguos
-            docker compose -f docker-compose.prod.yml down || true
-
-            # Levantar servicios
-            docker compose -f docker-compose.prod.yml pull backend
-            docker compose -f docker-compose.prod.yml up -d db backend caddy
-
-            # Limpiar imágenes antiguas
-            docker image prune -af --filter 'until=24h' || true
-
-            # Healthcheck backend
-            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
-
-            echo ">>> Deploy finalizado."
+volumes:
+  db_data:
+    name: db_data
+  static_volume:
+    name: static_volume
+  media_volume:
+    name: media_volume
+  caddy_data:
+    name: caddy_data
+  caddy_config:
+    name: caddy_config

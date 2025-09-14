@@ -1,0 +1,41 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["Build & Push"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: ./frontend-build
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v0.1.9
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /home/${{ secrets.EC2_USER }}/proyecto-base/infra/compose
+
+            # Pull backend image
+            docker pull ${{ env.BACKEND_IMAGE }}:latest
+
+            # Copiar frontend build al volumen static_volume
+            docker run --rm -v static_volume:/srv -v $PWD/../../frontend-build:/build alpine \
+                sh -c "cp -a /build/. /srv && chown -R 1000:1000 /srv && chmod -R 755 /srv"
+
+            # Levantar servicios
+            docker compose -f docker-compose.prod.yml up -d
