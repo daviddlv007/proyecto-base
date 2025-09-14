@@ -71,30 +71,34 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            #!/bin/bash
             set -euo pipefail
 
-            PROJECT_NAME="${{ github.repository }}"
+            PROJECT_NAME="daviddlv007/proyecto-base"
             PROJECT="${PROJECT_NAME##*/}"
-            REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT"
+            REPO_DIR="/home/***/$PROJECT"
 
             echo ">>> Directorio de despliegue: $REPO_DIR"
 
-            # Crear estructura de carpetas solo si no existen
-            mkdir -p "$REPO_DIR/frontend/dist/mi-app"
-            mkdir -p "$REPO_DIR/infra/compose"
+            # Crear estructura de carpetas con sudo
+            sudo mkdir -p "$REPO_DIR/frontend/dist/mi-app"
+            sudo mkdir -p "$REPO_DIR/infra/compose"
+
+            # Ajustar permisos para que el usuario 1000 pueda escribir
+            sudo chown -R 1000:1000 "$REPO_DIR"
 
             # Copiar frontend build desde artifact
             rsync -a ./frontend/dist/mi-app/ "$REPO_DIR/frontend/dist/mi-app/"
 
             cd "$REPO_DIR/infra/compose"
 
-            BACKEND_IMAGE_FULL="ghcr.io/${{ github.repository }}/backend:latest"
+            BACKEND_IMAGE_FULL="ghcr.io/daviddlv007/proyecto-base/backend:latest"
             echo ">>> Imagen backend a usar: $BACKEND_IMAGE_FULL"
 
             # Login a GHCR
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "***" | docker login ghcr.io -u daviddlv007 --password-stdin
 
-            # Crear volúmenes y ajustar permisos (solo si no existen)
+            # Crear volúmenes y ajustar permisos
             for vol in static_volume media_volume caddy_data caddy_config; do
               docker volume inspect "$vol" >/dev/null 2>&1 || docker volume create "$vol"
               docker run --rm -v "$vol":/data alpine sh -c "chown -R 1000:1000 /data && chmod -R 755 /data && sync"
@@ -114,3 +118,4 @@ jobs:
             docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
 
             echo ">>> Deploy finalizado."
+
