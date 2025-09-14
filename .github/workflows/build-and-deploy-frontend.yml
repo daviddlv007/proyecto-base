@@ -1,0 +1,51 @@
+name: Build & Deploy Frontend
+
+on:
+  workflow_dispatch:
+    inputs:
+      bucket:
+        description: 'Nombre del bucket S3 donde desplegar el frontend'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # 1️⃣ Checkout
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2️⃣ Setup Node
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3️⃣ Build frontend
+      - name: Build frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build
+
+      # 4️⃣ Debug: mostrar contenido del build
+      - name: Debug frontend build folder
+        run: |
+          echo "Ruta real del build: frontend/dist/mi-app"
+          ls -R frontend/dist/mi-app
+
+      # 5️⃣ Deploy a S3
+      - name: Deploy to S3
+        uses: aws-actions/s3-sync@v2
+        with:
+          source-dir: frontend/dist/mi-app/browser/
+          dest-bucket: ${{ github.event.inputs.bucket }}
+          acl: public-read
+          delete: true
+
+      - name: Confirmación
+        run: |
+          echo "Frontend desplegado en: https://${{ github.event.inputs.bucket }}.s3.amazonaws.com"
