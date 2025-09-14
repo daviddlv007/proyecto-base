@@ -39,7 +39,7 @@ jobs:
 
       # 5️⃣ Deploy a S3
       - name: Deploy to S3
-        uses: aws-actions/s3-sync@v2
+        uses: aws-actions/s3-sync@v1
         with:
           source-dir: frontend/dist/mi-app/browser/
           dest-bucket: ${{ github.event.inputs.bucket }}
