@@ -21,9 +21,6 @@ services:
       POSTGRES_PORT: "5432"
     depends_on:
       - db
-    volumes:
-      - static_volume:/vol/static
-      - media_volume:/vol/media
     user: "1000:1000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/healthz/"]
@@ -40,7 +37,6 @@ services:
       - DOMAIN=${DOMAIN}
     volumes:
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - static_volume:/srv:ro
       - caddy_data:/data
       - caddy_config:/config
     ports:
@@ -53,10 +49,6 @@ services:
 volumes:
   db_data:
     name: db_data
-  static_volume:
-    name: static_volume
-  media_volume:
-    name: media_volume
   caddy_data:
     name: caddy_data
   caddy_config:
