@@ -28,12 +28,14 @@ jobs:
             PROJECT="${PROJECT_NAME##*/}"
             REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT"
 
+            echo "Directorio de despliegue: $REPO_DIR"
+
             # Crear carpeta y asegurar permisos correctos
             sudo mkdir -p "$REPO_DIR"
-            sudo chown -R ec2-user:ec2-user "$REPO_DIR"
+            sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} "$REPO_DIR"
 
             # Ejecutar todo como ec2-user
-            sudo -i -u ec2-user bash <<EOF
+            sudo -i -u ${{ secrets.EC2_USER }} bash <<EOF
             set -euo pipefail
 
             cd "$REPO_DIR"
@@ -48,23 +50,32 @@ jobs:
 
             cd "infra/compose"
 
-            # Login GHCR
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ec2-user --password-stdin
+            # Generar archivo .env dinámico
+            BACKEND_IMAGE_FULL="ghcr.io/${{ github.repository }}/backend:latest"
+            echo "BACKEND_IMAGE=$BACKEND_IMAGE_FULL" > .env
+            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
+            echo "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" >> .env
+            echo "DOMAIN=${{ secrets.DOMAIN }}" >> .env
 
-            # Crear volúmenes si no existen
+            echo ">>> Login a GHCR"
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            echo ">>> Crear volúmenes si no existen"
+            docker volume inspect static_volume >/dev/null 2>&1 || docker volume create static_volume
             docker volume inspect caddy_data >/dev/null 2>&1 || docker volume create caddy_data
             docker volume inspect caddy_config >/dev/null 2>&1 || docker volume create caddy_config
 
-            # Detener contenedores antiguos y levantar nuevos
+            echo ">>> Detener contenedores existentes"
             docker compose -f docker-compose.prod.yml down || true
+
+            echo ">>> Levantar servicios con Docker Compose (db backend caddy)"
             docker compose -f docker-compose.prod.yml pull backend caddy
             docker compose -f docker-compose.prod.yml up -d db backend caddy
 
-            # Limpiar imágenes antiguas
+            echo ">>> Limpiar imágenes antiguas"
             docker image prune -af --filter 'until=24h' || true
 
-            # Verificar estado del backend
-            BACKEND_IMAGE_FULL="ghcr.io/${{ github.repository }}/backend:latest"
+            echo ">>> Estado backend:"
             docker inspect -f '{{.State.Health.Status}}' \$(docker ps --filter ancestor=\$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
 
             echo ">>> Deploy finalizado."
