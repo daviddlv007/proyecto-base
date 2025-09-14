@@ -1,12 +1,11 @@
 name: CI/CD - Deploy Frontend (prod)
 
 on:
+  workflow_run:
+    workflows: ["Build & Push Backend"]
+    types:
+      - completed
   workflow_dispatch:
-    # opcionalmente puedes usar workflow_run si quieres que se ejecute tras backend
-    # workflow_run:
-    #   workflows: ["Build & Push Backend"]
-    #   types:
-    #     - completed
 
 permissions:
   contents: read
@@ -14,21 +13,18 @@ permissions:
 env:
   FRONTEND_DIR: frontend
   STATIC_BUILD_DIR: dist/mi-app/browser
-  EC2_USER: ${{ secrets.EC2_USER }}
-  EC2_HOST: ${{ secrets.EC2_HOST }}
-  EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
 
 jobs:
-  build-and-deploy:
+  deploy-frontend:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '20'
+          node-version: 20
 
       - name: Install dependencies
         run: |
@@ -40,32 +36,20 @@ jobs:
           cd $FRONTEND_DIR
           npm run build
 
-      - name: Deploy static files to EC2
-        uses: appleboy/ssh-action@v0.1.9
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            set -euo pipefail
-            STATIC_DIR="/var/lib/docker/volumes/static_volume/_data"
+      - name: Copy static files to EC2
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          STATIC_DIR="/var/lib/docker/volumes/static_volume/_data"
 
-            echo ">>> Limpiando carpeta de estáticos en EC2"
-            sudo rm -rf "$STATIC_DIR"/*
-            sudo mkdir -p "$STATIC_DIR"
-            sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} "$STATIC_DIR"
+          echo ">>> Preparando carpeta de estáticos en EC2"
+          ssh -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" "$EC2_USER@$EC2_HOST" \
+            "sudo mkdir -p $STATIC_DIR && sudo chown -R $EC2_USER:$EC2_USER $STATIC_DIR"
 
-            echo ">>> Copiando nuevos estáticos"
-            # Recuerda: $GITHUB_WORKSPACE es la ruta donde GitHub Actions clona tu repo
-            scp -r $GITHUB_WORKSPACE/${FRONTEND_DIR}/${STATIC_BUILD_DIR}/* ${{ secrets.EC2_USER }}@$HOST:"$STATIC_DIR"
+          echo ">>> Copiando nuevos estáticos"
+          scp -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" -r $FRONTEND_DIR/$STATIC_BUILD_DIR/* "$EC2_USER@$EC2_HOST:$STATIC_DIR"
 
-      - name: Restart Caddy (optional)
-        uses: appleboy/ssh-action@v0.1.9
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            set -euo pipefail
-            echo ">>> Reiniciando Caddy para refrescar archivos estáticos"
-            docker compose -f /home/${{ secrets.EC2_USER }}/proyecto-base/infra/compose/docker-compose.prod.yml restart caddy
+      - name: Done
+        run: echo ">>> Deploy de frontend finalizado."
