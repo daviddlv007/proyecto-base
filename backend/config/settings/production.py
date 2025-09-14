@@ -25,4 +25,4 @@ DATABASES = {
 }
 
 # Archivos estáticos recolectados
-STATIC_ROOT = "/vol/static"
+STATIC_ROOT = "/vol/django_static"
