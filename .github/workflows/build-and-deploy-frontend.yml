@@ -47,21 +47,48 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # 7️⃣ Crear distribución CloudFront con HTTPS
-      - name: Crear distribución CloudFront
+      - name: Crear distribución CloudFront con HTTPS
         id: cloudfront
         run: |
-          DIST_ID=$(aws cloudfront list-distributions \
-            --query "DistributionList.Items[?Comment=='proyecto-base-frontend'].Id" --output text)
-          if [ -z "$DIST_ID" ]; then
-            echo "Creando nueva distribución CloudFront..."
-            DIST_ID=$(aws cloudfront create-distribution \
-              --origin-domain-name "${{ github.event.inputs.bucket }}.s3.amazonaws.com" \
-              --default-root-object index.html \
-              --comment "proyecto-base-frontend" \
-              --query "Distribution.Id" --output text)
-          fi
+          # Definir archivo JSON de distribución mínimo
+          cat > dist-config.json <<EOF
+          {
+            "CallerReference": "$(date +%s)",
+            "Comment": "proyecto-base-frontend",
+            "DefaultCacheBehavior": {
+              "TargetOriginId": "S3-${{ github.event.inputs.bucket }}",
+              "ViewerProtocolPolicy": "redirect-to-https",
+              "TrustedSigners": {
+                "Enabled": false,
+                "Quantity": 0
+              },
+              "ForwardedValues": {
+                "QueryString": false,
+                "Cookies": { "Forward": "none" }
+              },
+              "MinTTL": 0
+            },
+            "Origins": {
+              "Quantity": 1,
+              "Items": [
+                {
+                  "Id": "S3-${{ github.event.inputs.bucket }}",
+                  "DomainName": "${{ github.event.inputs.bucket }}.s3.amazonaws.com",
+                  "S3OriginConfig": { "OriginAccessIdentity": "" }
+                }
+              ]
+            },
+            "Enabled": true,
+            "DefaultRootObject": "index.html"
+          }
+          EOF
+
+          # Crear distribución
+          DIST_ID=$(aws cloudfront create-distribution \
+            --distribution-config file://dist-config.json \
+            --query "Distribution.Id" --output text)
           echo "DIST_ID=$DIST_ID" >> $GITHUB_ENV
+
 
       - name: Mostrar URL pública HTTPS
         run: |
