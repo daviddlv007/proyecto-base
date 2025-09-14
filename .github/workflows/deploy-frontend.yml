@@ -44,12 +44,19 @@ jobs:
         run: |
           STATIC_DIR="/var/lib/docker/volumes/static_volume/_data"
 
+          # Crear archivo temporal con la clave SSH
+          echo "$EC2_SSH_KEY" > key.pem
+          chmod 600 key.pem
+
           echo ">>> Preparando carpeta de estáticos en EC2"
-          ssh -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" "$EC2_USER@$EC2_HOST" \
+          ssh -o StrictHostKeyChecking=no -i key.pem "$EC2_USER@$EC2_HOST" \
             "sudo mkdir -p $STATIC_DIR && sudo chown -R $EC2_USER:$EC2_USER $STATIC_DIR"
 
           echo ">>> Copiando nuevos estáticos"
-          scp -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" -r $FRONTEND_DIR/$STATIC_BUILD_DIR/* "$EC2_USER@$EC2_HOST:$STATIC_DIR"
+          scp -o StrictHostKeyChecking=no -i key.pem -r $FRONTEND_DIR/$STATIC_BUILD_DIR/* "$EC2_USER@$EC2_HOST:$STATIC_DIR"
+
+          # Borrar archivo temporal de la clave
+          rm key.pem
 
       - name: Done
         run: echo ">>> Deploy de frontend finalizado."
