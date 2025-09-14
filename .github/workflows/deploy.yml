@@ -32,11 +32,12 @@ jobs:
           script: |
             set -euo pipefail
 
-            # Extraer solo el nombre del proyecto del repo
-            PROJECT_NAME=$(basename "${{ github.repository }}")
+            # Definir variables
+            PROJECT_NAME=$(basename "daviddlv007/proyecto-base")
             REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT_NAME"
-            BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"
-            GHCR_TOKEN="***"  # token GHCR (puede pasarse por secrets)
+            BACKEND_IMAGE_FULL="ghcr.io/daviddlv007/proyecto-base/backend:latest"
+            GHCR_TOKEN="***"
+            GIT_URL="https://github.com/daviddlv007/proyecto-base.git"
 
             echo ">>> Directorio de despliegue: $REPO_DIR"
 
@@ -44,8 +45,8 @@ jobs:
             sudo mkdir -p "$REPO_DIR"
             sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} "$REPO_DIR"
 
-            # Ejecutar script como usuario EC2, pasando variables
-            sudo -i -u ${{ secrets.EC2_USER }} REPO_DIR="$REPO_DIR" BACKEND_IMAGE_FULL="$BACKEND_IMAGE_FULL" GHCR_TOKEN="$GHCR_TOKEN" bash <<'EOF'
+            # Ejecutar script como usuario EC2, pasando TODAS las variables
+            sudo -i -u ${{ secrets.EC2_USER }} REPO_DIR="$REPO_DIR" BACKEND_IMAGE_FULL="$BACKEND_IMAGE_FULL" GHCR_TOKEN="$GHCR_TOKEN" GIT_URL="$GIT_URL" bash <<'EOF'
             set -euo pipefail
 
             echo ">>> Entrando a $REPO_DIR"
@@ -54,8 +55,8 @@ jobs:
             # Clonar o actualizar solo carpeta infra con sparse-checkout
             if [ ! -d ".git" ]; then
                 echo ">>> Inicializando git y sparse-checkout para infra..."
-                git init
-                git remote add origin "${GIT_URL}"
+                git init --initial-branch=main
+                git remote add origin "$GIT_URL"
                 git config core.sparseCheckout true
                 echo "infra/*" > .git/info/sparse-checkout
                 git fetch --depth=1 origin main
