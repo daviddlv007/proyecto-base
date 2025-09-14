@@ -58,11 +58,11 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Download frontend build artifact
-        uses: actions/download-artifact@v4
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v3
         with:
           name: frontend-build
-          path: ./frontend/dist/mi-app
+          path: ./frontend/dist
 
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v0.1.9
@@ -77,24 +77,24 @@ jobs:
             PROJECT="${PROJECT_NAME##*/}"
             REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT"
 
-            echo "Directorio de despliegue: $REPO_DIR"
+            echo ">>> Directorio de despliegue: $REPO_DIR"
 
-            # Crear carpeta de proyecto si no existe
+            # Crear estructura de carpetas solo si no existen
             mkdir -p "$REPO_DIR/frontend/dist/mi-app"
-            chown -R 1000:1000 "$REPO_DIR"
+            mkdir -p "$REPO_DIR/infra/compose"
 
-            # Copiar build frontend desde el artifact
+            # Copiar frontend build desde artifact
             rsync -a ./frontend/dist/mi-app/ "$REPO_DIR/frontend/dist/mi-app/"
 
             cd "$REPO_DIR/infra/compose"
 
-            BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"
+            BACKEND_IMAGE_FULL="ghcr.io/${{ github.repository }}/backend:latest"
             echo ">>> Imagen backend a usar: $BACKEND_IMAGE_FULL"
 
-            # Login GHCR en EC2
+            # Login a GHCR
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # Crear volúmenes y ajustar permisos
+            # Crear volúmenes y ajustar permisos (solo si no existen)
             for vol in static_volume media_volume caddy_data caddy_config; do
               docker volume inspect "$vol" >/dev/null 2>&1 || docker volume create "$vol"
               docker run --rm -v "$vol":/data alpine sh -c "chown -R 1000:1000 /data && chmod -R 755 /data && sync"
@@ -111,6 +111,6 @@ jobs:
             docker image prune -af --filter 'until=24h' || true
 
             # Healthcheck backend
-            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=$BACKEND_IMAGE:latest --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
+            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
 
             echo ">>> Deploy finalizado."
