@@ -50,15 +50,22 @@ jobs:
             echo ">>> Entrando a \$REPO_DIR"
             cd "\$REPO_DIR"
 
-            # Clonar o actualizar repo
+            # Clonar o actualizar solo carpeta infra con sparse-checkout
             if [ ! -d ".git" ]; then
-                echo ">>> Clonando repositorio..."
-                git clone https://github.com/daviddlv007/proyecto-base.git .
+                echo ">>> Inicializando git y sparse-checkout para infra..."
+                git init
+                git remote add origin https://github.com/daviddlv007/proyecto-base.git
+                git config core.sparseCheckout true
+                echo "infra/*" > .git/info/sparse-checkout
+                git fetch --depth=1 origin main
+                git checkout main
             else
-                echo ">>> Actualizando repositorio..."
-                git fetch --all
-                git reset --hard origin/main
+                echo ">>> Actualizando carpeta infra..."
+                git fetch origin main
+                git checkout main
+                git sparse-checkout set infra
             fi
+
 
             # Verificar que infra/compose existe
             if [ ! -d "infra/compose" ]; then
