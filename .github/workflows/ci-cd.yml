@@ -95,16 +95,21 @@ jobs:
             echo ">>> Login a GHCR"
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            echo ">>> Crear volúmenes si no existen"
-            docker volume inspect static_volume >/dev/null 2>&1 || docker volume create static_volume
-            docker volume inspect caddy_data >/dev/null 2>&1 || docker volume create caddy_data
-            docker volume inspect caddy_config >/dev/null 2>&1 || docker volume create caddy_config
+            echo ">>> Crear volúmenes si no existen y ajustar permisos"
+
+            for vol in static_volume media_volume caddy_data caddy_config; do
+                if ! docker volume inspect "$vol" >/dev/null 2>&1; then
+                    docker volume create "$vol"
+                fi
+
+                # Ajustar permisos al UID/GID del contenedor backend (1000:1000)
+                docker run --rm -v "$vol":/data alpine sh -c "chown -R 1000:1000 /data && chmod -R 755 /data"
+            done
 
             echo ">>> Poblar static_volume con build del frontend"
-            # Copiar los archivos compilados directamente desde la carpeta local
             docker run --rm -v static_volume:/data \
-              -v "$REPO_DIR/frontend/build":/build alpine \
-              sh -c "cp -a /build/. /data/ && chown -R 1000:1000 /data && sync"
+                      -v "$REPO_DIR/frontend/build":/build alpine \
+                      sh -c "cp -a /build/. /data/ && chown -R 1000:1000 /data && chmod -R 755 /data && sync"
 
             echo ">>> Generar archivo .env dinámico"
             echo "BACKEND_IMAGE=$BACKEND_IMAGE_FULL" > .env
