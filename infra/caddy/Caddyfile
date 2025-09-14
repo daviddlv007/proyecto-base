@@ -4,6 +4,7 @@
     # Archivos estáticos
     handle /static/* {
         root * /vol/static
+        uri strip_prefix /static
         file_server
     }
 
