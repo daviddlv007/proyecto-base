@@ -18,7 +18,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Node
+      # 2️⃣ Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -37,15 +37,19 @@ jobs:
           echo "Ruta real del build: frontend/dist/mi-app"
           ls -R frontend/dist/mi-app
 
-      # 5️⃣ Deploy a S3
+      # 5️⃣ Deploy a S3 (corregido)
       - name: Deploy to S3
-        uses: aws-actions/s3-sync@v1
+        uses: jakejarvis/s3-sync-action@master
         with:
-          source-dir: frontend/dist/mi-app/browser/
-          dest-bucket: ${{ github.event.inputs.bucket }}
-          acl: public-read
-          delete: true
+          args: --acl public-read --delete
+        env:
+          AWS_S3_BUCKET: ${{ github.event.inputs.bucket }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1           # Cambia si tu bucket está en otra región
+          SOURCE_DIR: frontend/dist/mi-app/browser/
 
+      # 6️⃣ Confirmación
       - name: Confirmación
         run: |
           echo "Frontend desplegado en: https://${{ github.event.inputs.bucket }}.s3.amazonaws.com"
