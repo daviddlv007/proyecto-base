@@ -24,59 +24,78 @@ jobs:
           script: |
             set -euo pipefail
 
-            PROJECT_NAME="${{ github.repository }}"
+            PROJECT_NAME="daviddlv007/proyecto-base"
             PROJECT="${PROJECT_NAME##*/}"
-            REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT"
+            REPO_DIR="/home/***/$PROJECT"
 
-            echo "Directorio de despliegue: $REPO_DIR"
+            echo ">>> Directorio de despliegue: $REPO_DIR"
 
-            # Asegurar que la carpeta existe y permisos correctos
+            # Crear carpeta y asegurar permisos correctos
             sudo mkdir -p "$REPO_DIR"
             sudo chown -R $USER:$USER "$REPO_DIR"
 
-            # Ejecutar todo como ec2-user
-            sudo -i -u $USER bash <<'EOF'
+            # Ejecutar todo como usuario EC2
+            sudo -i -u $USER bash <<EOF
             set -euo pipefail
 
+            echo ">>> Entrando a $REPO_DIR"
             cd "$REPO_DIR"
 
             # Clonar o actualizar repo
             if [ ! -d ".git" ]; then
-                git clone https://x-access-token:${{ secrets.GHCR_TOKEN }}@github.com/${{ github.repository }}.git .
+                echo ">>> Clonando repositorio..."
+                git clone https://x-access-token:***@github.com/daviddlv007/proyecto-base.git .
             else
+                echo ">>> Actualizando repositorio..."
                 git fetch --all
                 git reset --hard origin/main
             fi
 
-            cd "infra/compose" || { echo "ERROR: infra/compose no existe"; exit 1; }
+            # Verificar que infra/compose existe
+            if [ ! -d "infra/compose" ]; then
+                echo "ERROR: infra/compose no existe"
+                exit 1
+            fi
+            cd "infra/compose"
 
             # Generar archivo .env dinámico
-            BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"
+            BACKEND_IMAGE_FULL="ghcr.io/daviddlv007/proyecto-base/backend:latest"
+            echo ">>> Generando .env dinámico"
             echo "BACKEND_IMAGE=$BACKEND_IMAGE_FULL" > .env
-            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
-            echo "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" >> .env
-            echo "DOMAIN=${{ secrets.DOMAIN }}" >> .env
+            echo "POSTGRES_PASSWORD=***" >> .env
+            echo "DJANGO_SECRET_KEY=***" >> .env
+            echo "DOMAIN=***" >> .env
 
-            echo ">>> Login a GHCR"
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u $USER --password-stdin
+            # Login a GHCR
+            echo ">>> Logueando a GHCR"
+            echo "***" | docker login ghcr.io -u $USER --password-stdin
 
-            echo ">>> Crear volúmenes si no existen"
-            docker volume inspect static_volume >/dev/null 2>&1 || docker volume create static_volume
-            docker volume inspect caddy_data >/dev/null 2>&1 || docker volume create caddy_data
-            docker volume inspect caddy_config >/dev/null 2>&1 || docker volume create caddy_config
+            # Crear volúmenes si no existen
+            echo ">>> Creando volúmenes (si no existen)"
+            for vol in static_volume caddy_data caddy_config; do
+                docker volume inspect $vol >/dev/null 2>&1 || {
+                    docker volume create $vol
+                    echo "    - Volumen $vol creado"
+                }
+            done
 
-            echo ">>> Detener contenedores existentes"
+            # Detener contenedores existentes
+            echo ">>> Deteniendo contenedores existentes"
             docker compose -f docker-compose.prod.yml down || true
 
-            echo ">>> Levantar servicios con Docker Compose (db backend caddy)"
+            # Levantar servicios
+            echo ">>> Levantando servicios con Docker Compose"
             docker compose -f docker-compose.prod.yml pull backend caddy
             docker compose -f docker-compose.prod.yml up -d db backend caddy
 
-            echo ">>> Limpiar imágenes antiguas"
+            # Limpiar imágenes antiguas
+            echo ">>> Limpiando imágenes antiguas"
             docker image prune -af --filter 'until=24h' || true
 
+            # Estado backend
             echo ">>> Estado backend:"
-            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
+            docker inspect -f '{{.State.Health.Status}}' \$(docker ps --filter ancestor=\$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
 
             echo ">>> Deploy finalizado."
             EOF
+
