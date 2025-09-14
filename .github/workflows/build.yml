@@ -1,6 +1,8 @@
-name: Build and Push (Frontend & Backend)
+name: Build & Push Backend
 
 on:
+  push:
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -11,58 +13,31 @@ env:
   BACKEND_IMAGE: ghcr.io/${{ github.repository }}/backend
 
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
     outputs:
-      backend-image: ${{ env.BACKEND_IMAGE }}:latest
+      backend-image: ${{ steps.set-output.outputs.backend-image }}
     steps:
-      # 1️⃣ Checkout
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Node
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      # 3️⃣ Build frontend
-      - name: Build frontend
-        working-directory: ./frontend
-        run: |
-          npm ci
-          npm run build
-
-      # 4️⃣ Debug: mostrar contenido del build
-      - name: Debug frontend build folder
-        run: |
-          echo "Ruta real del build: frontend/dist/mi-app"
-          ls -R frontend/dist/mi-app
-
-      # 5️⃣ Subir artefacto del frontend
-      - name: Upload frontend build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-build
-          path: frontend/dist/mi-app
-
-      # 6️⃣ Setup QEMU & Buildx (Docker backend)
-      - name: Setup QEMU & Buildx
+      - name: Set up QEMU & Buildx
         uses: docker/setup-buildx-action@v2
 
-      # 7️⃣ Login GHCR
-      - name: Login to GHCR
+      - name: Log in to GHCR
         uses: docker/login-action@v2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      # 8️⃣ Build & push backend
       - name: Build & push backend image
+        id: set-output
         uses: docker/build-push-action@v4
         with:
           context: ./backend
           file: ./backend/Dockerfile.prod
           push: true
           tags: ${{ env.BACKEND_IMAGE }}:latest
+        # Guardamos la imagen en un output para que pueda usarla el workflow de deploy
+        run: echo "backend-image=${{ env.BACKEND_IMAGE }}:latest" >> $GITHUB_OUTPUT
