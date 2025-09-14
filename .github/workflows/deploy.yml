@@ -59,18 +59,19 @@ jobs:
                 git config core.sparseCheckout true
                 echo "infra/*" > .git/info/sparse-checkout
                 git fetch --depth=1 origin main
-                git checkout main
+                git checkout -b main origin/main
             else
                 echo ">>> Actualizando carpeta infra..."
                 # Asegurar que existe el remote
                 if ! git remote | grep -q origin; then
                     git remote add origin "$GIT_URL"
                 fi
+
                 git fetch origin main
                 git checkout main
+                git merge --ff-only origin/main
                 git sparse-checkout set infra
             fi
-
 
             # Verificar que infra/compose existe
             if [ ! -d "infra/compose" ]; then
