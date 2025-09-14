@@ -1,12 +1,9 @@
 {$DOMAIN} {
     encode zstd gzip
 
-    # Archivos estáticos
-    handle /static/* {
-        root * /vol/static
-        uri strip_prefix /static
-        file_server
-    }
+    # Archivos estáticos en la raíz
+    root * /vol/static
+    file_server
 
     # API
     handle /api/* {
