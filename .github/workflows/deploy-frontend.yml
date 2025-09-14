@@ -36,33 +36,37 @@ jobs:
           cd $FRONTEND_DIR
           npm run build
 
+      - name: Prepare SSH key
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          echo "$EC2_SSH_KEY" > private_key.pem
+          chmod 600 private_key.pem
+
       - name: Upload build to EC2
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
-          # Carpeta temporal en EC2 para los estáticos
           TEMP_BUILD_DIR="/home/$EC2_USER/frontend_build"
 
           echo ">>> Creando carpeta temporal en EC2"
-          ssh -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" "$EC2_USER@$EC2_HOST" \
+          ssh -o StrictHostKeyChecking=no -i private_key.pem "$EC2_USER@$EC2_HOST" \
             "mkdir -p $TEMP_BUILD_DIR && chown -R $EC2_USER:$EC2_USER $TEMP_BUILD_DIR"
 
           echo ">>> Subiendo archivos estáticos al EC2"
-          scp -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" -r $FRONTEND_DIR/$STATIC_BUILD_DIR/* "$EC2_USER@$EC2_HOST:$TEMP_BUILD_DIR"
+          scp -o StrictHostKeyChecking=no -i private_key.pem -r $FRONTEND_DIR/$STATIC_BUILD_DIR/* "$EC2_USER@$EC2_HOST:$TEMP_BUILD_DIR"
 
       - name: Copiar al volumen de Docker usando contenedor temporal
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
           STATIC_VOLUME_PATH="static_volume"
           TEMP_BUILD_DIR="/home/$EC2_USER/frontend_build"
 
           echo ">>> Copiando estáticos al volumen de Docker usando contenedor temporal"
-          ssh -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" "$EC2_USER@$EC2_HOST" bash -c "'
+          ssh -o StrictHostKeyChecking=no -i private_key.pem "$EC2_USER@$EC2_HOST" bash -c "'
             docker run --rm \
               -v $STATIC_VOLUME_PATH:/vol/static \
               -v $TEMP_BUILD_DIR:/build:ro \
@@ -73,10 +77,9 @@ jobs:
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
           echo ">>> Limpiando carpeta temporal"
-          ssh -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" "$EC2_USER@$EC2_HOST" \
+          ssh -o StrictHostKeyChecking=no -i private_key.pem "$EC2_USER@$EC2_HOST" \
             "rm -rf /home/$EC2_USER/frontend_build"
 
       - name: Done
