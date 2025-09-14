@@ -14,42 +14,48 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      # 1️⃣ Checkout
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 3️⃣ Build frontend
       - name: Build frontend
         working-directory: ./frontend
         run: |
           npm ci
           npm run build
 
-      # 4️⃣ Debug: mostrar contenido del build
-      - name: Debug frontend build folder
-        run: |
-          echo "Ruta real del build: frontend/dist/mi-app"
-          ls -R frontend/dist/mi-app
-
-      # 5️⃣ Deploy a S3 (sin ACL)
-      - name: Deploy to S3
-        uses: jakejarvis/s3-sync-action@master
+      - name: Deploy to S3 (sin ACLs)
+        uses: jakejarvis/s3-sync-action@v0.6.0
         with:
           args: --delete
         env:
           AWS_S3_BUCKET: ${{ github.event.inputs.bucket }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: us-east-1           # Cambia si tu bucket está en otra región
+          AWS_REGION: us-east-1
           SOURCE_DIR: frontend/dist/mi-app/browser/
 
-      # 6️⃣ Confirmación
-      - name: Confirmación
+      - name: Crear distribución CloudFront con HTTPS
+        id: cloudfront
         run: |
-          echo "Frontend desplegado en: https://${{ github.event.inputs.bucket }}.s3.amazonaws.com"
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='proyecto-base-frontend'].Id" --output text)
+          if [ -z "$DIST_ID" ]; then
+            echo "Creando nueva distribución CloudFront..."
+            DIST_ID=$(aws cloudfront create-distribution \
+              --origin-domain-name "${{ github.event.inputs.bucket }}.s3.amazonaws.com" \
+              --default-root-object index.html \
+              --comment "proyecto-base-frontend" \
+              --query "Distribution.Id" --output text)
+          fi
+          echo "DIST_ID=$DIST_ID" >> $GITHUB_ENV
+
+      - name: Mostrar URL pública HTTPS
+        run: |
+          DOMAIN=$(aws cloudfront get-distribution --id ${{ env.DIST_ID }} \
+            --query "Distribution.DomainName" --output text)
+          echo "Frontend desplegado y accesible por HTTPS en: https://$DOMAIN"

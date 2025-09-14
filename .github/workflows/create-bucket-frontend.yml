@@ -13,15 +13,8 @@ jobs:
       bucket_name: ${{ steps.set-outputs.outputs.bucket }}
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Leer variables desde terraform.tfvars
-        id: tfvars
-        run: |
-          set -euo pipefail
-          PROJECT=$(grep 'project_name' infra/terraform/terraform.tfvars | awk -F '=' '{print $2}' | tr -d ' "')
-          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
 
       - name: Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v2
@@ -33,22 +26,15 @@ jobs:
       - name: Crear bucket S3
         id: set-outputs
         run: |
-          set -euo pipefail
-          BUCKET="${PROJECT}-frontend"
-
-          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-            echo "Bucket ya existe: $BUCKET"
-          else
-            echo "Creando bucket S3: $BUCKET"
+          BUCKET="proyecto-base-frontend"
+          if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
             aws s3api create-bucket --bucket "$BUCKET" --region us-east-1
             aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled
+            # Bloquear ACLs para compatibilidad con ObjectOwnership
             aws s3api put-public-access-block --bucket "$BUCKET" \
               --public-access-block-configuration BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false
-            echo "Bucket creado y accesible públicamente"
           fi
-
           echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
-
 
       - name: Mostrar bucket
         run: |
