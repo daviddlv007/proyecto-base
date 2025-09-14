@@ -36,8 +36,8 @@ jobs:
             REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT_NAME"   # Ruta de despliegue
             BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"     # Imagen backend desde env
             GIT_URL="${{ env.GIT_URL }}"                              # URL repo dinámico
-            GHCR_TOKEN="***"
-            
+            GHCR_TOKEN="${{ secrets.GHCR_TOKEN }}"
+
             echo ">>> Directorio de despliegue: $REPO_DIR"
 
             # Crear carpeta y asegurar permisos correctos
