@@ -16,7 +16,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Set up Node
@@ -30,7 +30,13 @@ jobs:
           npm ci
           npm run build
 
-      - name: Set up QEMU & Buildx (para backend)
+      - name: Upload frontend build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend-build
+          path: ./frontend/dist/mi-app
+
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
       - name: Log in to GHCR
@@ -40,7 +46,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      # Backend build & push
       - name: Build & push backend image
         uses: docker/build-push-action@v4
         with:
@@ -53,6 +58,12 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: frontend-build
+          path: ./frontend/dist/mi-app
+
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v0.1.9
         with:
@@ -62,123 +73,49 @@ jobs:
           script: |
             set -euo pipefail
 
-            PROJECT_NAME="${{ github.repository }}"
-            PROJECT="${PROJECT_NAME##*/}"
-            REPO_DIR="/home/${{ secrets.EC2_USER }}/$PROJECT"
+            REPO_DIR="/home/${{ secrets.EC2_USER }}/proyecto-base"
+            mkdir -p "$REPO_DIR/frontend/dist/mi-app"
 
-            echo "Directorio de despliegue: $REPO_DIR"
-
-            DEPLOY_FOLDERS=("infra" "otra_carpeta")
-
-            if [ ! -d "$REPO_DIR/.git" ]; then
-                git init "$REPO_DIR"
-                cd "$REPO_DIR"
-                git remote add origin https://x-access-token:${{ secrets.GHCR_TOKEN }}@github.com/${{ github.repository }}.git
-                git config core.sparseCheckout true
-                for folder in "${DEPLOY_FOLDERS[@]}"; do
-                  echo "$folder/" >> .git/info/sparse-checkout
-                done
-                git fetch --depth=1 origin main
-                git checkout main
-            else
-                cd "$REPO_DIR"
-                git fetch --all
-                git reset --hard origin/main
-            fi
-
-            cd "$REPO_DIR/infra/compose"
-
-            BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"
-            echo ">>> Imagen backend a usar: $BACKEND_IMAGE_FULL"
-
-
-            echo ">>> Login a GHCR"
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-
-
-
-            echo ">>> Crear y preparar volúmenes si no existen (con logging)"
-
-            REPO_BUILD_DIR="$REPO_DIR/frontend/dist/mi-app"
-
-            vol_create_and_prepare() {
+            # Crear volúmenes con permisos correctos
+            create_vol() {
               local vol="$1"
-              shift
-              echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') - Volumen: $vol"
-
-              # Crear volumen si no existe
-              if ! docker volume inspect "$vol" >/dev/null 2>&1; then
-                echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') -   -> Creando volumen $vol"
-                docker volume create "$vol"
-              else
-                echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') -   -> Ya existe $vol"
-              fi
-
-              # Preparar estructura y permisos dentro del volumen (montado en /data)
-              # Recibir comandos opcionales para crear rutas específicas: e.g. "mkdir -p /data/admin /data/media"
-              local prep_cmds="${*:-}"
-              # Ejecutar en un contenedor temporal (como root) para poder chown
-              docker run --rm -v "${vol}":/data alpine sh -c "\
-                set -e || true; \
-                ${prep_cmds:-:}; \
-                # Asegurar que la raíz tenga permisos y dueño adecuado \
-                chown -R 1000:1000 /data || true; \
-                chmod -R 755 /data || true; \
-                sync; \
-                echo 'LIST /data:'; ls -la /data || true"
+              docker volume inspect "$vol" >/dev/null 2>&1 || docker volume create "$vol"
+              docker run --rm -v "$vol":/data alpine sh -c "\
+                mkdir -p /data; \
+                chown -R 1000:1000 /data; \
+                chmod -R 755 /data; \
+                sync"
             }
 
-            echo ">>> Preparando static_volume (crear admin y asegurar permisos)"
-            # static_volume: crear carpeta admin (usa /data porque el volumen se monta en /vol/static dentro del backend)
-            vol_create_and_prepare static_volume "mkdir -p /data/admin /data/.well-known || true"
+            create_vol static_volume
+            create_vol media_volume
+            create_vol caddy_data
+            create_vol caddy_config
 
-            echo ">>> Preparando media_volume (asegurar permisos y estructura básica)"
-            vol_create_and_prepare media_volume "mkdir -p /data || true"
+            # Copiar frontend build al volumen
+            mkdir -p /tmp/frontend-build
+            cp -a "$REPO_DIR/frontend/dist/mi-app/." /tmp/frontend-build/
+            docker run --rm -v static_volume:/data alpine sh -c "\
+              cp -a /tmp/frontend-build/. /data/; \
+              chown -R 1000:1000 /data; \
+              chmod -R 755 /data; \
+              sync"
 
-            echo ">>> Preparando caddy_data y caddy_config (asegurar permisos)"
-            vol_create_and_prepare caddy_data "mkdir -p /data || true"
-            vol_create_and_prepare caddy_config "mkdir -p /data || true"
+            # Generar archivo .env dinámico
+            echo "BACKEND_IMAGE=${{ env.BACKEND_IMAGE }}:latest" > "$REPO_DIR/.env"
+            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> "$REPO_DIR/.env"
+            echo "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" >> "$REPO_DIR/.env"
+            echo "DOMAIN=${{ secrets.DOMAIN }}" >> "$REPO_DIR/.env"
 
-            # --- Copiar build del frontend a static_volume ---
-            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') - Verificando existencia de frontend build: $REPO_BUILD_DIR"
-            if [ ! -d "$REPO_BUILD_DIR" ] || [ -z "$(ls -A "$REPO_BUILD_DIR" 2>/dev/null)" ]; then
-              echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') - ERROR: $REPO_BUILD_DIR no existe o está vacío. No se copiará nada al volumen."
-              echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') - Sugerencia: asegúrate de incluir 'frontend' en el sparse-checkout o ejecutar el build antes de este paso."
-              # Opcional: fallar la ejecución para no desplegar en un estado incompleto
-              exit 1
-            fi
+            # Detener contenedores antiguos y levantar nuevos
+            docker compose -f "$REPO_DIR/infra/compose/docker-compose.prod.yml" down || true
+            docker compose -f "$REPO_DIR/infra/compose/docker-compose.prod.yml" pull backend
+            docker compose -f "$REPO_DIR/infra/compose/docker-compose.prod.yml" up -d db backend caddy
 
-            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') - Copiando frontend/build a static_volume y ajustando permisos"
-            docker run --rm -v static_volume:/data \
-              -v "$REPO_BUILD_DIR":/build alpine \
-              sh -c "set -e; cp -a /build/. /data/; sync; chown -R 1000:1000 /data; chmod -R 755 /data; echo 'COPIED: /data listing'; ls -la /data || true"
-
-            # Verificación final (imprime propietario/uid de un archivo y listado)
-            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') - Verificando contenido y propietarios en static_volume"
-            docker run --rm -v static_volume:/data alpine sh -c "echo '--- ls -la /data ---'; ls -la /data || true; echo '--- owner of first file ---'; stat -c '%n %U:%G %u:%g' /data/* 2>/dev/null || true"
-
-            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') - Volúmenes preparados correctamente."
-
-
-
-            echo ">>> Generar archivo .env dinámico"
-            echo "BACKEND_IMAGE=$BACKEND_IMAGE_FULL" > .env
-            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
-            echo "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" >> .env
-            echo "DOMAIN=${{ secrets.DOMAIN }}" >> .env
-
-            echo ">>> Deteniendo contenedores existentes"
-            docker compose -f docker-compose.prod.yml down || true
-
-            echo ">>> Levantar servicios con Docker Compose v2 (db backend caddy)"
-            docker compose -f docker-compose.prod.yml pull backend
-            docker compose -f docker-compose.prod.yml up -d db backend caddy
-
-            echo ">>> Limpieza imágenes antiguas"
+            # Limpieza de imágenes antiguas
             docker image prune -af --filter 'until=24h' || true
 
-            echo ">>> Estado backend:"
-            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=$BACKEND_IMAGE:latest --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
+            # Verificar estado del backend
+            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=${{ env.BACKEND_IMAGE }}:latest --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
 
             echo ">>> Deploy finalizado."
