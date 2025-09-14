@@ -39,7 +39,16 @@ jobs:
           AWS_REGION: us-east-1
           SOURCE_DIR: frontend/dist/mi-app/browser/
 
-      - name: Crear distribución CloudFront con HTTPS
+      # 6️⃣ Configurar credenciales AWS para CloudFront
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # 7️⃣ Crear distribución CloudFront con HTTPS
+      - name: Crear distribución CloudFront
         id: cloudfront
         run: |
           DIST_ID=$(aws cloudfront list-distributions \
