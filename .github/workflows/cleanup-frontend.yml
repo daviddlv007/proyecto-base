@@ -7,7 +7,7 @@ on:
         description: 'Nombre del bucket S3 a eliminar'
         required: true
       cloudfront_id:
-        description: 'ID de la distribución CloudFront'
+        description: 'ID de la distribución CloudFront a eliminar'
         required: true
 
 permissions:
@@ -31,20 +31,23 @@ jobs:
         id: cf-config
         run: |
           DIST_ID="${{ github.event.inputs.cloudfront_id }}"
-          aws cloudfront get-distribution-config --id $DIST_ID > dist-config.json
-          ETag=$(aws cloudfront get-distribution-config --id $DIST_ID --query 'ETag' --output text)
+          # Obtener configuración completa
+          aws cloudfront get-distribution-config --id $DIST_ID > temp.json
+          # Guardar ETag
+          ETag=$(jq -r '.ETag' temp.json)
           echo "DIST_ID=$DIST_ID" >> $GITHUB_ENV
           echo "ETAG=$ETag" >> $GITHUB_ENV
 
       - name: Deshabilitar distribución CloudFront
         run: |
-          jq '.DistributionConfig.Enabled = false' dist-config.json > dist-config-disabled.json
+          # Modificar Enabled dentro de DistributionConfig y extraer solo DistributionConfig
+          jq '.DistributionConfig.Enabled = false | .DistributionConfig' temp.json > dist-config-disabled.json
           aws cloudfront update-distribution \
             --id $DIST_ID \
             --distribution-config file://dist-config-disabled.json \
             --if-match $ETAG
           echo "Distribución deshabilitada. Esperando propagación..."
-          sleep 60  # puede ajustarse según sea necesario
+          sleep 60  # Aumentar si tu distribución tarda más en propagarse
 
       - name: Eliminar distribución CloudFront
         run: |
