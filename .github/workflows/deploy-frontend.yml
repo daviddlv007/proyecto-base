@@ -36,27 +36,48 @@ jobs:
           cd $FRONTEND_DIR
           npm run build
 
-      - name: Copy static files to EC2
+      - name: Upload build to EC2
         env:
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
-          STATIC_DIR="/var/lib/docker/volumes/static_volume/_data"
+          # Carpeta temporal en EC2 para los estáticos
+          TEMP_BUILD_DIR="/home/$EC2_USER/frontend_build"
 
-          # Crear archivo temporal con la clave SSH
-          echo "$EC2_SSH_KEY" > key.pem
-          chmod 600 key.pem
+          echo ">>> Creando carpeta temporal en EC2"
+          ssh -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" "$EC2_USER@$EC2_HOST" \
+            "mkdir -p $TEMP_BUILD_DIR && chown -R $EC2_USER:$EC2_USER $TEMP_BUILD_DIR"
 
-          echo ">>> Preparando carpeta de estáticos en EC2"
-          ssh -o StrictHostKeyChecking=no -i key.pem "$EC2_USER@$EC2_HOST" \
-            "sudo mkdir -p $STATIC_DIR && sudo chown -R $EC2_USER:$EC2_USER $STATIC_DIR"
+          echo ">>> Subiendo archivos estáticos al EC2"
+          scp -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" -r $FRONTEND_DIR/$STATIC_BUILD_DIR/* "$EC2_USER@$EC2_HOST:$TEMP_BUILD_DIR"
 
-          echo ">>> Copiando nuevos estáticos"
-          scp -o StrictHostKeyChecking=no -i key.pem -r $FRONTEND_DIR/$STATIC_BUILD_DIR/* "$EC2_USER@$EC2_HOST:$STATIC_DIR"
+      - name: Copiar al volumen de Docker usando contenedor temporal
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          STATIC_VOLUME_PATH="static_volume"
+          TEMP_BUILD_DIR="/home/$EC2_USER/frontend_build"
 
-          # Borrar archivo temporal de la clave
-          rm key.pem
+          echo ">>> Copiando estáticos al volumen de Docker usando contenedor temporal"
+          ssh -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" "$EC2_USER@$EC2_HOST" bash -c "'
+            docker run --rm \
+              -v $STATIC_VOLUME_PATH:/vol/static \
+              -v $TEMP_BUILD_DIR:/build:ro \
+              alpine sh -c \"cp -r /build/* /vol/static && chown -R 1000:1000 /vol/static\"
+          '"
+
+      - name: Cleanup temporal
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          echo ">>> Limpiando carpeta temporal"
+          ssh -o StrictHostKeyChecking=no -i "$EC2_SSH_KEY" "$EC2_USER@$EC2_HOST" \
+            "rm -rf /home/$EC2_USER/frontend_build"
 
       - name: Done
         run: echo ">>> Deploy de frontend finalizado."
