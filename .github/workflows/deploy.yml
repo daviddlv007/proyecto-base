@@ -2,14 +2,13 @@ name: Deploy to EC2
 
 on:
   workflow_dispatch:
-    inputs:
-      backend-image:
-        required: true
-        description: 'Backend Docker image to deploy'
 
 permissions:
   contents: read
   packages: read
+
+env:
+  BACKEND_IMAGE: ghcr.io/daviddlv007/proyecto-base/backend:latest
 
 jobs:
   deploy:
@@ -48,7 +47,6 @@ jobs:
 
             cd "$REPO_DIR/infra/compose"
 
-            BACKEND_IMAGE="${{ github.event.inputs.backend-image }}"
             echo ">>> Imagen backend a usar: $BACKEND_IMAGE"
 
             # Login GHCR
