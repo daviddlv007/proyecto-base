@@ -1,18 +1,18 @@
-name: Deploy Backend
+name: CI/CD - Deploy Backend (prod)
 
 on:
-  workflow_dispatch:
-  workflow_run:
-    workflows: ["Build & Push Backend"]
-    types:
-      - completed
+  push:
+    branches: ["main"]
 
 permissions:
   contents: read
+  packages: write
+
+env:
+  BACKEND_IMAGE: ghcr.io/${{ github.repository }}/backend
 
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to EC2 via SSH
@@ -30,12 +30,12 @@ jobs:
 
             echo "Directorio de despliegue: $REPO_DIR"
 
-            # Crear carpeta y asegurar permisos correctos
+            # Asegurar que la carpeta existe y permisos correctos
             sudo mkdir -p "$REPO_DIR"
-            sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} "$REPO_DIR"
+            sudo chown -R $USER:$USER "$REPO_DIR"
 
             # Ejecutar todo como ec2-user
-            sudo -i -u ${{ secrets.EC2_USER }} bash <<EOF
+            sudo -i -u $USER bash <<'EOF'
             set -euo pipefail
 
             cd "$REPO_DIR"
@@ -48,17 +48,17 @@ jobs:
                 git reset --hard origin/main
             fi
 
-            cd "infra/compose"
+            cd "infra/compose" || { echo "ERROR: infra/compose no existe"; exit 1; }
 
             # Generar archivo .env dinámico
-            BACKEND_IMAGE_FULL="ghcr.io/${{ github.repository }}/backend:latest"
+            BACKEND_IMAGE_FULL="${{ env.BACKEND_IMAGE }}:latest"
             echo "BACKEND_IMAGE=$BACKEND_IMAGE_FULL" > .env
             echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
             echo "DJANGO_SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}" >> .env
             echo "DOMAIN=${{ secrets.DOMAIN }}" >> .env
 
             echo ">>> Login a GHCR"
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u $USER --password-stdin
 
             echo ">>> Crear volúmenes si no existen"
             docker volume inspect static_volume >/dev/null 2>&1 || docker volume create static_volume
@@ -76,7 +76,7 @@ jobs:
             docker image prune -af --filter 'until=24h' || true
 
             echo ">>> Estado backend:"
-            docker inspect -f '{{.State.Health.Status}}' \$(docker ps --filter ancestor=\$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
+            docker inspect -f '{{.State.Health.Status}}' $(docker ps --filter ancestor=$BACKEND_IMAGE_FULL --format '{{.Names}}' | head -n1) 2>/dev/null || echo "no-healthcheck"
 
             echo ">>> Deploy finalizado."
             EOF
