@@ -2,7 +2,7 @@ name: CI/CD - Deploy Backend (prod)
 
 on:
   workflow_run:
-    workflows: ["Build & Push Backend"]
+    workflows: ["CI/CD - Build & Push Backend"]
     types:
       - completed
   workflow_dispatch:
