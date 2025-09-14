@@ -1,10 +1,10 @@
-name: Cleanup Frontend
+name: Cleanup Frontend Total
 
 on:
   workflow_dispatch:
     inputs:
       bucket_name:
-        description: 'Bucket S3 a eliminar'
+        description: 'Nombre del bucket S3 a eliminar'
         required: true
       cloudfront_id:
         description: 'ID de la distribución CloudFront'
@@ -27,30 +27,41 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Obtener configuración y ETag de CloudFront
+        id: cf-config
+        run: |
+          DIST_ID="${{ github.event.inputs.cloudfront_id }}"
+          aws cloudfront get-distribution-config --id $DIST_ID > dist-config.json
+          ETag=$(aws cloudfront get-distribution-config --id $DIST_ID --query 'ETag' --output text)
+          echo "DIST_ID=$DIST_ID" >> $GITHUB_ENV
+          echo "ETAG=$ETag" >> $GITHUB_ENV
+
       - name: Deshabilitar distribución CloudFront
         run: |
+          jq '.DistributionConfig.Enabled = false' dist-config.json > dist-config-disabled.json
           aws cloudfront update-distribution \
-            --id ${{ github.event.inputs.cloudfront_id }} \
-            --distribution-config "$(aws cloudfront get-distribution-config --id ${{ github.event.inputs.cloudfront_id }} --query 'DistributionConfig')" \
-            --if-match "$(aws cloudfront get-distribution-config --id ${{ github.event.inputs.cloudfront_id }} --query 'ETag' --output text)" \
-            --enabled false
-          echo "Distribución CloudFront deshabilitada, esperando propagación..."
-          sleep 60
+            --id $DIST_ID \
+            --distribution-config file://dist-config-disabled.json \
+            --if-match $ETAG
+          echo "Distribución deshabilitada. Esperando propagación..."
+          sleep 60  # puede ajustarse según sea necesario
 
       - name: Eliminar distribución CloudFront
         run: |
-          aws cloudfront delete-distribution --id ${{ github.event.inputs.cloudfront_id }} --if-match "$(aws cloudfront get-distribution-config --id ${{ github.event.inputs.cloudfront_id }} --query 'ETag' --output text)"
+          # Obtener el ETag actualizado antes de eliminar
+          ETag=$(aws cloudfront get-distribution-config --id $DIST_ID --query 'ETag' --output text)
+          aws cloudfront delete-distribution --id $DIST_ID --if-match $ETag
           echo "Distribución eliminada."
 
       - name: Vaciar bucket S3 (versiones incluidas)
         run: |
-          BUCKET=${{ github.event.inputs.bucket_name }}
-          # Vaciar versiones si existe versioning
+          BUCKET="${{ github.event.inputs.bucket_name }}"
+          # Eliminar versiones si existe versioning
           VERSIONS=$(aws s3api list-object-versions --bucket $BUCKET --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' --output json)
           if [ "$VERSIONS" != '{"Objects":[]}' ]; then
             aws s3api delete-objects --bucket $BUCKET --delete "$VERSIONS"
           fi
-          # Vaciar objetos "DeleteMarkers" si hay
+          # Eliminar DeleteMarkers
           MARKERS=$(aws s3api list-object-versions --bucket $BUCKET --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' --output json)
           if [ "$MARKERS" != '{"Objects":[]}' ]; then
             aws s3api delete-objects --bucket $BUCKET --delete "$MARKERS"
@@ -62,6 +73,6 @@ jobs:
           aws s3api delete-bucket --bucket ${{ github.event.inputs.bucket_name }}
           echo "Bucket eliminado."
 
-      - name: Eliminar OAI asociado (opcional)
+      - name: Recordatorio OAI
         run: |
-          echo "Recuerda eliminar manualmente el OAI si lo quieres borrar, AWS no permite borrarlo mientras la distribución existió."
+          echo "Si quieres eliminar el OAI asociado, hazlo manualmente. AWS no permite borrarlo mientras existió una distribución que lo usó."
